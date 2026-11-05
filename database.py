@@ -44,3 +44,5 @@ cursor.execute(
 )
 print(cursor.fetchall())
 connection.close()
+def save_message(chat_id, sender, content, created_at):
+    pass
