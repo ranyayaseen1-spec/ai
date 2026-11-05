@@ -5,7 +5,7 @@ from pathlib import Path
 # Zorg dat de database altijd naast database.py staat.
 DB_PATH = Path(__file__).resolve().parent / "chatmemory.db"
 
-
+#Crieert Tabel conversations
 def initialize_database():
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -34,21 +34,24 @@ def initialize_database():
     connection.commit()
     connection.close()
 
+#maakt nieuw gesprek aan
 def create_conversation(title):
         connection = sqlite3.connect(DB_PATH)
         cursor = connection.cursor()
         sql = ''' INSERT INTO conversations(title)
+                    
               VALUES(?) '''
         cursor.execute(
+          
     sql,
     (title,))
+        new_chat_id = cursor.lastrowid
         connection.commit()
         connection.close()
+        return new_chat_id
+    
 
-        
-
-
-
+#slaat gesprekken op
 def save_message(chat_id, sender, content, created_at):
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -62,7 +65,7 @@ def save_message(chat_id, sender, content, created_at):
     connection.commit()
     connection.close()
 
-
+#pakt de gesprekken in de database
 def get_messages(chat_id):
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
