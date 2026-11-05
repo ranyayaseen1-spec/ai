@@ -2,3 +2,4 @@
 chatmemory.db
 chatmemory.db-wal
 chatmemory.db-shm
+.db
