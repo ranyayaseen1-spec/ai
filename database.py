@@ -76,8 +76,6 @@ def save_message(chat_id, sender, content, created_at):
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
     cursor = connection.cursor()
-    conversations = cursor.fetchall()
-
     cursor.execute(
         "INSERT INTO messages (chat_id, sender, content, created_at) VALUES (?, ?, ?, ?)",
         (chat_id, sender, content, created_at)
@@ -101,10 +99,31 @@ def get_messages(chat_id):
 
     return messages
 
+def save_memory(chat_id, content, season, episode, version):
+    connection = sqlite3.connect(DB_PATH)
+    connection.execute("PRAGMA foreign_keys = ON")
+    cursor = connection.cursor()
+    cursor.execute(
+            "INSERT INTO memories (chat_id, season, content, episode, version) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, season, content, episode, version)
+        )
+    
+    connection.commit()
+    connection.close()
+
+
 
 if __name__ == "__main__":
     initialize_database()
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
+    cursor.execute("SELECT * FROM memories")
+    memories = cursor.fetchall()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    #save_memory(1, "Emma ontdekt een geheime doorgang", 1, 1, "1.0")
+    print(tables)
+    print(memories)
     print("Database is klaar!")
     print(get_messages(1))
+    connection.close()
