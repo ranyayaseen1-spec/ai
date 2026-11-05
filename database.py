@@ -122,20 +122,42 @@ def get_memories(chat_id):
 
     memories = cursor.fetchall()
     connection.close()
-    return memories             
+    return memories
+
+def delete_memory(memory_id):
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM memories WHERE memory_id = ?",
+    (memory_id,))
+    connection.commit()
+    connection.close()
+
 
 if __name__ == "__main__":
     initialize_database()
+
+    # Verwijder alleen herinnering 2
+    #delete_memory(2)
+
+    # Open de database
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
+
+    # Haal de overgebleven herinneringen op
     cursor.execute("SELECT * FROM memories")
     memories = cursor.fetchall()
+
+    # Bekijk welke tabellen bestaan
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = cursor.fetchall()
-    #save_memory(1, "Emma ontdekt een geheime doorgang", 1, 1, "1.0")
+
+    # Print de resultaten
     print(tables)
     print(memories)
     print("Database is klaar!")
     print(get_messages(1))
     print(get_memories(1))
+
+    # Sluit de verbinding
     connection.close()
+
