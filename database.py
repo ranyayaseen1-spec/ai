@@ -34,6 +34,8 @@ def initialize_database():
     connection.commit()
     connection.close()
 
+def create_conversation(title):
+    pass
 
 def save_message(chat_id, sender, content, created_at):
     connection = sqlite3.connect(DB_PATH)
