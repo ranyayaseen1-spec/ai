@@ -111,7 +111,18 @@ def save_memory(chat_id, content, season, episode, version):
     connection.commit()
     connection.close()
 
+def get_memories(chat_id):
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
 
+    cursor.execute(
+        "SELECT * FROM memories WHERE chat_id = ?",
+        (chat_id,)
+    )
+
+    memories = cursor.fetchall()
+    connection.close()
+    return memories             
 
 if __name__ == "__main__":
     initialize_database()
@@ -126,4 +137,5 @@ if __name__ == "__main__":
     print(memories)
     print("Database is klaar!")
     print(get_messages(1))
+    print(get_memories(1))
     connection.close()
