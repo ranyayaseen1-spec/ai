@@ -49,6 +49,14 @@ def create_conversation(title):
         connection.commit()
         connection.close()
         return new_chat_id
+
+def get_conversations():
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+    cursor.execute("select * from conversations")
+    conversations = cursor.fetchall()
+    connection.close()
+    return conversations
     
 
 #slaat gesprekken op
@@ -56,6 +64,7 @@ def save_message(chat_id, sender, content, created_at):
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
     cursor = connection.cursor()
+    conversations = cursor.fetchall()
 
     cursor.execute(
         "INSERT INTO messages (chat_id, sender, content, created_at) VALUES (?, ?, ?, ?)",
