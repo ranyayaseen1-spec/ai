@@ -31,6 +31,18 @@ def initialize_database():
         )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS memories (
+        memory_id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        season INTEGER,
+        episode INTEGER,
+        Version TEXT,
+        FOREIGN KEY (chat_id) REFERENCES conversations(chat_id)
+    )
+    """)
+
     connection.commit()
     connection.close()
 
@@ -92,5 +104,7 @@ def get_messages(chat_id):
 
 if __name__ == "__main__":
     initialize_database()
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
     print("Database is klaar!")
     print(get_messages(1))
