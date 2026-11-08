@@ -43,6 +43,22 @@ def initialize_database():
     )
     """)
 
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS episodes (
+        episode_id INTEGER PRIMARY KEY
+
+        )
+    """)
+
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS season (
+            season_id INTEGER PRIMARY KEY
+    
+            )
+    """)
+    
+
     connection.commit()
     connection.close()
 
