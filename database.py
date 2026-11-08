@@ -50,6 +50,26 @@ def initialize_database():
         chat_id INTEGER,
         FOREIGN KEY (chat_id) REFERENCES conversations(chat_id)
     )
+
+    """)
+
+  
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS episode_versions (
+        version_id INTEGER PRIMARY KEY,
+        version_number TEXT,
+        episode_id INTEGER NOT NULL,
+        transcript_text TEXT,
+        is_canon INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id),
+        UNIQUE(episode_id, version_number)
+    )
+""")
+
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS one_canon_per_episode
+    ON episode_versions(episode_id)
+    WHERE is_canon = 1
 """)
 
     # Haal alle tabelnamen op
