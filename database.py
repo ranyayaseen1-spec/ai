@@ -42,25 +42,27 @@ def initialize_database():
         FOREIGN KEY (chat_id) REFERENCES conversations(chat_id)
     )
     """)
-
-
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS episodes (
-        episode_id INTEGER PRIMARY KEY
+    CREATE TABLE IF NOT EXISTS episodes (
+        episode_id INTEGER PRIMARY KEY,
+        season_id INTEGER,
+        episode_number INTEGER,
+        chat_id INTEGER,
+        FOREIGN KEY (chat_id) REFERENCES conversations(chat_id)
+    )
+""")
 
-        )
-    """)
+    # Haal alle tabelnamen op
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
 
-    cursor.execute("""
-            CREATE TABLE IF NOT EXISTS season (
-            season_id INTEGER PRIMARY KEY
-    
-            )
-    """)
-    
+    # Laat de tabellen zien in de terminal
+    print(tables)
 
     connection.commit()
     connection.close()
+
+
 
 #maakt nieuw gesprek aan
 def create_conversation(title):
@@ -115,6 +117,7 @@ def get_messages(chat_id):
 
     return messages
 
+#Slaat seizoen en versie op
 def save_memory(chat_id, content, season, episode, version):
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -176,4 +179,5 @@ if __name__ == "__main__":
 
     # Sluit de verbinding
     connection.close()
+    initialize_database()
 
