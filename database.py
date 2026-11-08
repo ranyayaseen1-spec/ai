@@ -82,8 +82,6 @@ def initialize_database():
     connection.commit()
     connection.close()
 
-
-
 #maakt nieuw gesprek aan
 def create_conversation(title):
         connection = sqlite3.connect(DB_PATH)
@@ -99,6 +97,21 @@ def create_conversation(title):
         connection.commit()
         connection.close()
         return new_chat_id
+
+def save_episode(season_id, episode_number, chat_id):
+    connection = sqlite3.connect(DB_PATH)
+    connection.execute("PRAGMA foreign_keys = ON")
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "INSERT INTO episodes (season_id, episode_number, chat_id) VALUES (?, ?, ?)",
+        (season_id, episode_number, chat_id)
+    )
+
+    connection.commit()
+    connection.close()
+
+
 
 def get_conversations():
     connection = sqlite3.connect(DB_PATH)
