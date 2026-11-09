@@ -1,28 +1,31 @@
 
 """
-ASTRA AI - MISSIE 6
-COMPLETE LOKALE BACKEND API
+ASTRA AI - COMPLETE LOKALE BACKEND API
 
 Bestand: ai/astra_api.py
 
-Installeren:
-    python -m pip install fastapi "uvicorn[standard]"
-
-Starten vanuit projecthoofdmap:
+Starten:
     python ai/astra_api.py
 
 API-documentatie:
-    http://127.0.0.1:8000/docs
+    http://127.0.0.1:8001/docs
 
-BELANGRIJK:
-- Gebruikt jouw bestaande SQLite-database.
-- Gebruikt jouw bestaande Ollama-chatbrein.
-- Gebruikt jouw bestaande semantische geheugen.
-- Verwijdert geen bestaande verhalen.
-- Draait standaard alleen lokaal.
+Functies:
+- AU-chats
+- Chatgeschiedenis
+- Afleveringen
+- Canonversies
+- Langetermijngeheugen
+- Semantisch zoeken
+- Verhalen importeren
+- Dynamische Canon Engine
+- Aanpasbare verboden-zinnenregels
+
+Bestaande verhalen worden niet verwijderd.
 """
 
 import sqlite3
+
 from contextlib import closing
 from datetime import datetime, timezone
 from threading import RLock
@@ -52,37 +55,54 @@ from astra_chat import (
 # ==========================================
 
 API_HOST = "127.0.0.1"
-API_PORT = 8000
+API_PORT = 8001
 
-# Voorkomt gelijktijdige schrijfacties via
-# deze API binnen hetzelfde Python-proces.
 DATABASE_LOCK = RLock()
 
+
+# ==========================================
+# FASTAPI
+# ==========================================
 
 app = FastAPI(
     title="Astra AI API",
     description=(
         "Lokale backend voor Astra AI: "
         "AU-chats, afleveringen, canon, "
-        "berichten en langetermijngeheugen."
+        "berichten, langetermijngeheugen, "
+        "verhaalimports en dynamische regels."
     ),
     version="1.0.0",
 )
 
+
+# ==========================================
+# MISSIE 7 - VERHALEN IMPORTEREN
+# ==========================================
+
 from astra_import import router as import_router
+
 app.include_router(import_router)
 
+
+# ==========================================
+# MISSIE 7 - DYNAMISCHE CANON ENGINE
+# ==========================================
+
 from astra_canon_engine import install_astra_engine
+
 install_astra_engine(app)
+
 
 # ==========================================
 # DATABASE
 # ==========================================
 
 def connect():
+
     connection = sqlite3.connect(
         DB_PATH,
-        timeout=30
+        timeout=30,
     )
 
     connection.row_factory = sqlite3.Row
@@ -99,35 +119,44 @@ def connect():
 
 
 def now():
+
     return datetime.now(
         timezone.utc
     ).isoformat()
 
 
 def as_dict(row):
+
     return dict(row) if row else None
 
 
 def require_chat(connection, chat_id):
+
     row = connection.execute(
         """
-        SELECT chat_id, title, created_at, is_pinned
+        SELECT
+            chat_id,
+            title,
+            created_at,
+            is_pinned
         FROM conversations
         WHERE chat_id = ?
         """,
-        (chat_id,)
+        (chat_id,),
     ).fetchone()
 
     if row is None:
+
         raise HTTPException(
             status_code=404,
-            detail="Deze AU-chat bestaat niet."
+            detail="Deze AU-chat bestaat niet.",
         )
 
     return row
 
 
 def require_episode(connection, episode_id):
+
     row = connection.execute(
         """
         SELECT
@@ -138,19 +167,21 @@ def require_episode(connection, episode_id):
         FROM episodes
         WHERE episode_id = ?
         """,
-        (episode_id,)
+        (episode_id,),
     ).fetchone()
 
     if row is None:
+
         raise HTTPException(
             status_code=404,
-            detail="Deze aflevering bestaat niet."
+            detail="Deze aflevering bestaat niet.",
         )
 
     return row
 
 
 def require_version(connection, version_id):
+
     row = connection.execute(
         """
         SELECT
@@ -162,13 +193,14 @@ def require_version(connection, version_id):
         FROM episode_versions
         WHERE version_id = ?
         """,
-        (version_id,)
+        (version_id,),
     ).fetchone()
 
     if row is None:
+
         raise HTTPException(
             status_code=404,
-            detail="Deze versie bestaat niet."
+            detail="Deze versie bestaat niet.",
         )
 
     return row
@@ -179,38 +211,43 @@ def require_version(connection, version_id):
 # ==========================================
 
 class CreateChat(BaseModel):
+
     title: str = Field(
         min_length=1,
-        max_length=200
+        max_length=200,
     )
 
 
 class UpdateChat(BaseModel):
+
     title: Optional[str] = Field(
         default=None,
         min_length=1,
-        max_length=200
+        max_length=200,
     )
 
     is_pinned: Optional[bool] = None
 
 
 class SendMessage(BaseModel):
+
     content: str = Field(
         min_length=1,
-        max_length=100000
+        max_length=100000,
     )
 
 
 class CreateEpisode(BaseModel):
+
     season: int = Field(ge=1)
     episode: int = Field(ge=1)
 
 
 class CreateVersion(BaseModel):
+
     version_number: str = Field(
         min_length=1,
-        max_length=100
+        max_length=100,
     )
 
     transcript_text: str = ""
@@ -219,31 +256,33 @@ class CreateVersion(BaseModel):
 
 
 class SearchRequest(BaseModel):
+
     query: str = Field(
         min_length=1,
-        max_length=10000
+        max_length=10000,
     )
 
     limit: int = Field(
         default=10,
         ge=1,
-        le=100
+        le=100,
     )
 
 
 class CreateMemory(BaseModel):
+
     content: str = Field(
-        min_length=1
+        min_length=1,
     )
 
     season: Optional[int] = Field(
         default=None,
-        ge=1
+        ge=1,
     )
 
     episode: Optional[int] = Field(
         default=None,
-        ge=1
+        ge=1,
     )
 
     version: Optional[str] = None
@@ -255,30 +294,35 @@ class CreateMemory(BaseModel):
 
 @app.get("/")
 def home():
+
     return {
         "name": "Astra AI",
         "status": "online",
-        "mission": 6,
+        "mission": 7,
         "message": "Astra's backend is actief!",
-        "docs": "/docs"
+        "docs": "/docs",
+        "canon_engine": "/astra/status",
     }
 
 
 @app.get("/health")
 def health():
+
     try:
+
         with closing(connect()) as db:
             db.execute("SELECT 1").fetchone()
 
         return {
             "status": "ok",
-            "database": "connected"
+            "database": "connected",
         }
 
     except sqlite3.Error:
+
         raise HTTPException(
             status_code=503,
-            detail="Database niet bereikbaar."
+            detail="Database niet bereikbaar.",
         )
 
 
@@ -288,7 +332,9 @@ def health():
 
 @app.get("/chats")
 def list_chats():
+
     with closing(connect()) as db:
+
         rows = db.execute(
             """
             SELECT
@@ -305,31 +351,40 @@ def list_chats():
 
     return {
         "chats": [
-            dict(row) for row in rows
+            dict(row)
+            for row in rows
         ]
     }
 
 
 @app.post("/chats", status_code=201)
 def create_chat(data: CreateChat):
+
     title = data.title.strip()
 
     if not title:
+
         raise HTTPException(
             status_code=422,
-            detail="De AU-naam mag niet leeg zijn."
+            detail="De AU-naam mag niet leeg zijn.",
         )
 
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
+
                 cursor = db.execute(
                     """
-                    INSERT INTO conversations
-                    (title, created_at, is_pinned)
+                    INSERT INTO conversations (
+                        title,
+                        created_at,
+                        is_pinned
+                    )
                     VALUES (?, ?, 0)
                     """,
-                    (title, now())
+                    (title, now()),
                 )
 
                 chat_id = cursor.lastrowid
@@ -337,40 +392,55 @@ def create_chat(data: CreateChat):
     return {
         "chat_id": chat_id,
         "title": title,
-        "is_pinned": False
+        "is_pinned": False,
     }
 
 
 @app.get("/chats/{chat_id}")
 def get_chat(chat_id: int):
+
     with closing(connect()) as db:
-        row = require_chat(db, chat_id)
+
+        row = require_chat(
+            db,
+            chat_id,
+        )
 
     return dict(row)
 
 
 @app.patch("/chats/{chat_id}")
-def update_chat(chat_id: int, data: UpdateChat):
+def update_chat(
+    chat_id: int,
+    data: UpdateChat,
+):
+
     changes = data.model_dump(
         exclude_unset=True
     )
 
     if not changes:
+
         raise HTTPException(
             status_code=422,
-            detail="Geen wijzigingen opgegeven."
+            detail="Geen wijzigingen opgegeven.",
         )
 
     if "title" in changes:
-        changes["title"] = changes["title"].strip()
+
+        changes["title"] = (
+            changes["title"].strip()
+        )
 
         if not changes["title"]:
+
             raise HTTPException(
                 status_code=422,
-                detail="De AU-naam mag niet leeg zijn."
+                detail="De AU-naam mag niet leeg zijn.",
             )
 
     if "is_pinned" in changes:
+
         changes["is_pinned"] = int(
             changes["is_pinned"]
         )
@@ -379,15 +449,22 @@ def update_chat(chat_id: int, data: UpdateChat):
     values = []
 
     for key, value in changes.items():
+
         fields.append(f"{key} = ?")
         values.append(value)
 
     values.append(chat_id)
 
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
-                require_chat(db, chat_id)
+
+                require_chat(
+                    db,
+                    chat_id,
+                )
 
                 db.execute(
                     f"""
@@ -395,12 +472,12 @@ def update_chat(chat_id: int, data: UpdateChat):
                     SET {", ".join(fields)}
                     WHERE chat_id = ?
                     """,
-                    values
+                    values,
                 )
 
             updated = require_chat(
                 db,
-                chat_id
+                chat_id,
             )
 
     return dict(updated)
@@ -416,25 +493,23 @@ def get_messages(
     limit: int = Query(
         default=100,
         ge=1,
-        le=1000
+        le=1000,
     ),
     before_id: Optional[int] = Query(
         default=None,
-        ge=1
-    )
+        ge=1,
+    ),
 ):
-    """
-    Haal berichten op in pagina's.
-
-    Oude berichten blijven in de database.
-    Gebruik before_id om verder terug
-    in de geschiedenis te bladeren.
-    """
 
     with closing(connect()) as db:
-        require_chat(db, chat_id)
+
+        require_chat(
+            db,
+            chat_id,
+        )
 
         if before_id is None:
+
             rows = db.execute(
                 """
                 SELECT
@@ -448,10 +523,11 @@ def get_messages(
                 ORDER BY message_id DESC
                 LIMIT ?
                 """,
-                (chat_id, limit)
+                (chat_id, limit),
             ).fetchall()
 
         else:
+
             rows = db.execute(
                 """
                 SELECT
@@ -469,12 +545,13 @@ def get_messages(
                 (
                     chat_id,
                     before_id,
-                    limit
-                )
+                    limit,
+                ),
             ).fetchall()
 
     messages = [
-        dict(row) for row in reversed(rows)
+        dict(row)
+        for row in reversed(rows)
     ]
 
     return {
@@ -482,64 +559,69 @@ def get_messages(
         "messages": messages,
         "next_before_id": (
             messages[0]["message_id"]
-            if messages else None
-        )
+            if messages
+            else None
+        ),
     }
 
 
 # ==========================================
-# MET ASTRA PRATEN
+# BESTAANDE CHATROUTE
 # ==========================================
 
 @app.post("/chats/{chat_id}/chat")
 def send_chat_message(
     chat_id: int,
-    data: SendMessage
+    data: SendMessage,
 ):
+
     """
-    Stuurt een bericht naar Astra.
+    Bestaande chatfunctie.
 
-    Astra gebruikt:
-    - Ollama
-    - actieve canon
-    - semantisch geheugen
-    - oude opgeslagen gesprekken
+    LET OP:
+    De nieuwe Canon Engine schermt deze
+    route af via middleware.
 
-    De bestaande chatfunctie slaat
-    het gesprek zelf op.
+    Gebruik voortaan POST /astra/chat
+    met een expliciete modus.
     """
 
     question = data.content.strip()
 
     if not question:
+
         raise HTTPException(
             status_code=422,
-            detail="Bericht mag niet leeg zijn."
+            detail="Bericht mag niet leeg zijn.",
         )
 
     with closing(connect()) as db:
-        require_chat(db, chat_id)
+
+        require_chat(
+            db,
+            chat_id,
+        )
 
     try:
-        # Serialiseer chatbeurten om te voorkomen
-        # dat gelijktijdige verzoeken in dit proces
-        # de gesprekshistorie door elkaar halen.
+
         with DATABASE_LOCK:
+
             result = chat_with_astra(
                 chat_id,
-                question
+                question,
             )
 
     except (
         RuntimeError,
-        sqlite3.Error
+        sqlite3.Error,
     ) as error:
+
         raise HTTPException(
             status_code=503,
             detail=(
                 "Astra kon nu niet antwoorden. "
                 f"Technische melding: {error}"
-            )
+            ),
         ) from error
 
     return {
@@ -549,8 +631,8 @@ def send_chat_message(
         "memory": {
             "sources_used": result["sources"],
             "recent_messages_used": result["history"],
-            "exact_canon_episode": result["exact_episode"]
-        }
+            "exact_canon_episode": result["exact_episode"],
+        },
     }
 
 
@@ -560,8 +642,13 @@ def send_chat_message(
 
 @app.get("/chats/{chat_id}/episodes")
 def list_episodes(chat_id: int):
+
     with closing(connect()) as db:
-        require_chat(db, chat_id)
+
+        require_chat(
+            db,
+            chat_id,
+        )
 
         rows = db.execute(
             """
@@ -572,7 +659,6 @@ def list_episodes(chat_id: int):
                 ep.episode_number AS episode,
                 v.version_id AS canon_version_id,
                 v.version_number AS canon_version
-
             FROM episodes AS ep
 
             LEFT JOIN episode_versions AS v
@@ -585,29 +671,37 @@ def list_episodes(chat_id: int):
                 ep.season_id,
                 ep.episode_number
             """,
-            (chat_id,)
+            (chat_id,),
         ).fetchall()
 
     return {
         "chat_id": chat_id,
         "episodes": [
-            dict(row) for row in rows
-        ]
+            dict(row)
+            for row in rows
+        ],
     }
 
 
 @app.post(
     "/chats/{chat_id}/episodes",
-    status_code=201
+    status_code=201,
 )
 def create_episode(
     chat_id: int,
-    data: CreateEpisode
+    data: CreateEpisode,
 ):
+
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
-                require_chat(db, chat_id)
+
+                require_chat(
+                    db,
+                    chat_id,
+                )
 
                 existing = db.execute(
                     """
@@ -620,17 +714,18 @@ def create_episode(
                     (
                         chat_id,
                         data.season,
-                        data.episode
-                    )
+                        data.episode,
+                    ),
                 ).fetchone()
 
                 if existing:
+
                     raise HTTPException(
                         status_code=409,
                         detail=(
                             "Deze aflevering bestaat "
                             "al in deze AU."
-                        )
+                        ),
                     )
 
                 cursor = db.execute(
@@ -645,8 +740,8 @@ def create_episode(
                     (
                         chat_id,
                         data.season,
-                        data.episode
-                    )
+                        data.episode,
+                    ),
                 )
 
                 episode_id = cursor.lastrowid
@@ -655,16 +750,18 @@ def create_episode(
         "episode_id": episode_id,
         "chat_id": chat_id,
         "season": data.season,
-        "episode": data.episode
+        "episode": data.episode,
     }
 
 
 @app.get("/episodes/{episode_id}")
 def get_episode(episode_id: int):
+
     with closing(connect()) as db:
+
         episode = require_episode(
             db,
-            episode_id
+            episode_id,
         )
 
         versions = db.execute(
@@ -677,14 +774,15 @@ def get_episode(episode_id: int):
             WHERE episode_id = ?
             ORDER BY version_id
             """,
-            (episode_id,)
+            (episode_id,),
         ).fetchall()
 
     return {
         **dict(episode),
         "versions": [
-            dict(row) for row in versions
-        ]
+            dict(row)
+            for row in versions
+        ],
     }
 
 
@@ -694,26 +792,33 @@ def get_episode(episode_id: int):
 
 @app.post(
     "/episodes/{episode_id}/versions",
-    status_code=201
+    status_code=201,
 )
 def create_version(
     episode_id: int,
-    data: CreateVersion
+    data: CreateVersion,
 ):
-    version_name = data.version_number.strip()
+
+    version_name = (
+        data.version_number.strip()
+    )
 
     if not version_name:
+
         raise HTTPException(
             status_code=422,
-            detail="Versienummer mag niet leeg zijn."
+            detail="Versienummer mag niet leeg zijn.",
         )
 
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
+
                 require_episode(
                     db,
-                    episode_id
+                    episode_id,
                 )
 
                 existing = db.execute(
@@ -725,30 +830,29 @@ def create_version(
                     """,
                     (
                         episode_id,
-                        version_name
-                    )
+                        version_name,
+                    ),
                 ).fetchone()
 
                 if existing:
+
                     raise HTTPException(
                         status_code=409,
                         detail=(
                             "Dit versienummer bestaat "
                             "al voor deze aflevering."
-                        )
+                        ),
                     )
 
-                # Eerst oude canon uitzetten,
-                # dan pas nieuwe canon aanzetten.
-                # Alles gebeurt in één transactie.
                 if data.is_canon:
+
                     db.execute(
                         """
                         UPDATE episode_versions
                         SET is_canon = 0
                         WHERE episode_id = ?
                         """,
-                        (episode_id,)
+                        (episode_id,),
                     )
 
                 cursor = db.execute(
@@ -765,8 +869,8 @@ def create_version(
                         episode_id,
                         version_name,
                         data.transcript_text,
-                        int(data.is_canon)
-                    )
+                        int(data.is_canon),
+                    ),
                 )
 
                 version_id = cursor.lastrowid
@@ -775,16 +879,18 @@ def create_version(
         "version_id": version_id,
         "episode_id": episode_id,
         "version_number": version_name,
-        "is_canon": data.is_canon
+        "is_canon": data.is_canon,
     }
 
 
 @app.get("/versions/{version_id}")
 def get_version(version_id: int):
+
     with closing(connect()) as db:
+
         row = require_version(
             db,
-            version_id
+            version_id,
         )
 
     return dict(row)
@@ -795,34 +901,33 @@ def get_version(version_id: int):
 )
 def switch_canon(
     episode_id: int,
-    version_id: int
+    version_id: int,
 ):
-    """
-    Wissel actieve canon.
-
-    Oude versies blijven bestaan.
-    """
 
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
+
                 require_episode(
                     db,
-                    episode_id
+                    episode_id,
                 )
 
                 version = require_version(
                     db,
-                    version_id
+                    version_id,
                 )
 
                 if version["episode_id"] != episode_id:
+
                     raise HTTPException(
                         status_code=400,
                         detail=(
                             "Deze versie hoort niet "
                             "bij deze aflevering."
-                        )
+                        ),
                     )
 
                 db.execute(
@@ -831,7 +936,7 @@ def switch_canon(
                     SET is_canon = 0
                     WHERE episode_id = ?
                     """,
-                    (episode_id,)
+                    (episode_id,),
                 )
 
                 db.execute(
@@ -840,14 +945,14 @@ def switch_canon(
                     SET is_canon = 1
                     WHERE version_id = ?
                     """,
-                    (version_id,)
+                    (version_id,),
                 )
 
     return {
         "success": True,
         "episode_id": episode_id,
         "canon_version_id": version_id,
-        "canon_version": version["version_number"]
+        "canon_version": version["version_number"],
     }
 
 
@@ -857,24 +962,32 @@ def switch_canon(
 
 @app.post(
     "/chats/{chat_id}/memories",
-    status_code=201
+    status_code=201,
 )
 def create_memory(
     chat_id: int,
-    data: CreateMemory
+    data: CreateMemory,
 ):
+
     content = data.content.strip()
 
     if not content:
+
         raise HTTPException(
             status_code=422,
-            detail="Herinnering mag niet leeg zijn."
+            detail="Herinnering mag niet leeg zijn.",
         )
 
     with DATABASE_LOCK:
+
         with closing(connect()) as db:
+
             with db:
-                require_chat(db, chat_id)
+
+                require_chat(
+                    db,
+                    chat_id,
+                )
 
                 cursor = db.execute(
                     """
@@ -892,8 +1005,8 @@ def create_memory(
                         content,
                         data.season,
                         data.episode,
-                        data.version
-                    )
+                        data.version,
+                    ),
                 )
 
                 memory_id = cursor.lastrowid
@@ -904,7 +1017,7 @@ def create_memory(
         "content": content,
         "season": data.season,
         "episode": data.episode,
-        "version": data.version
+        "version": data.version,
     }
 
 
@@ -914,11 +1027,16 @@ def list_memories(
     limit: int = Query(
         default=100,
         ge=1,
-        le=1000
-    )
+        le=1000,
+    ),
 ):
+
     with closing(connect()) as db:
-        require_chat(db, chat_id)
+
+        require_chat(
+            db,
+            chat_id,
+        )
 
         rows = db.execute(
             """
@@ -933,14 +1051,15 @@ def list_memories(
             ORDER BY memory_id DESC
             LIMIT ?
             """,
-            (chat_id, limit)
+            (chat_id, limit),
         ).fetchall()
 
     return {
         "chat_id": chat_id,
         "memories": [
-            dict(row) for row in rows
-        ]
+            dict(row)
+            for row in rows
+        ],
     }
 
 
@@ -951,46 +1070,44 @@ def list_memories(
 @app.post("/chats/{chat_id}/search")
 def search_memory(
     chat_id: int,
-    data: SearchRequest
+    data: SearchRequest,
 ):
-    """
-    Zoekt in:
-    1. Canonafleveringen
-    2. Opgeslagen herinneringen
-    3. Oude chatberichten
-
-    De database heeft geen leeftijdsgrens.
-    De response heeft wel een resultatenlimiet.
-    """
 
     with closing(connect()) as db:
-        require_chat(db, chat_id)
+
+        require_chat(
+            db,
+            chat_id,
+        )
 
     try:
+
         with DATABASE_LOCK:
+
             canon_results = search_astra_memory(
                 chat_id=chat_id,
                 query=data.query,
                 limit=data.limit,
-                canon_only=True
+                canon_only=True,
             )
 
             old_chat_results = search_old_conversations(
                 chat_id=chat_id,
                 question=data.query,
-                limit=data.limit
+                limit=data.limit,
             )
 
     except (
         RuntimeError,
-        sqlite3.Error
+        sqlite3.Error,
     ) as error:
+
         raise HTTPException(
             status_code=503,
             detail=(
                 "Geheugenzoeken is tijdelijk "
                 f"niet beschikbaar: {error}"
-            )
+            ),
         ) from error
 
     return {
@@ -1001,7 +1118,7 @@ def search_memory(
         "note": (
             "Oude chatberichten zijn niet "
             "automatisch officiële canon."
-        )
+        ),
     }
 
 
@@ -1010,8 +1127,9 @@ def search_memory(
 # ==========================================
 
 def prepare_astra():
+
     print("\n" + "=" * 50)
-    print("ASTRA AI - MISSIE 6")
+    print("ASTRA AI - MISSIE 7")
     print("BACKEND API")
     print("=" * 50)
 
@@ -1025,20 +1143,23 @@ def prepare_astra():
     initialize_chat_search()
 
     print("\nAstra's backend is klaar! 💗")
+
     print(
-        "Open: http://127.0.0.1:8000/docs"
+        f"Open: http://{API_HOST}:{API_PORT}/docs"
     )
+
     print(
         "Stoppen: Ctrl + C\n"
     )
 
 
 if __name__ == "__main__":
+
     prepare_astra()
 
     uvicorn.run(
         app,
         host=API_HOST,
         port=API_PORT,
-        log_level="info"
+        log_level="info",
     )
