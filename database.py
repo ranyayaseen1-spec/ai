@@ -222,14 +222,57 @@ def delete_memory(memory_id):
             (memory_id,)
         )
 
+def set_canon_version(episode_id, version_id):
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+
+        # Controleer of deze versie bij de aflevering hoort.
+        version = connection.execute(
+            """
+            SELECT version_id
+            FROM episode_versions
+            WHERE episode_id = ? AND version_id = ?
+            """,
+            (episode_id, version_id)
+        ).fetchone()
+
+        if version is None:
+            raise ValueError(
+                "Deze versie bestaat niet voor deze aflevering."
+            )
+
+        # Haal de canonstatus van alle versies weg.
+        connection.execute(
+            """
+            UPDATE episode_versions
+            SET is_canon = 0
+            WHERE episode_id = ?
+            """,
+            (episode_id,)
+        )
+
+        # Maak de gekozen versie canon.
+        connection.execute(
+            """
+            UPDATE episode_versions
+            SET is_canon = 1
+            WHERE episode_id = ? AND version_id = ?
+            """,
+            (episode_id, version_id)
+        )
 
 # ==========================================
 # TESTEN (zonder dubbele testgegevens)
 # ==========================================
 
+# ==========================================
+# TESTEN
+# ==========================================
+
 if __name__ == "__main__":
     initialize_database()
-    print("Astra's database is klaar! 💗")
+
+    print("Astra's database is klaar!")
 
     print("\nGesprekken:")
     print(get_conversations())
@@ -243,5 +286,30 @@ if __name__ == "__main__":
     print("\nAfleveringen van chat 1:")
     print(get_episodes(1))
 
-    print("\nVersies van aflevering 1:")
+    # Kijk of versie 1.1 al bestaat.
+    versions = get_episode_versions(1)
+
+    version_11 = next(
+        (version for version in versions if version[1] == "1.1"),
+        None
+    )
+
+    if version_11 is None:
+        new_version_id = save_episode_version(
+            episode_id=1,
+            version_number="1.1",
+            transcript_text=(
+                "Emma ontdekt een geheime doorgang "
+                "en hoort mysterieuze voetstappen."
+            )
+        )
+        print("\nVersie 1.1 aangemaakt!")
+    else:
+        new_version_id = version_11[0]
+        print("\nVersie 1.1 bestaat al!")
+
+    # Maak versie 1.1 canon.
+    set_canon_version(1, new_version_id)
+
+    print("\nVersies na de canon-switch:")
     print(get_episode_versions(1))
