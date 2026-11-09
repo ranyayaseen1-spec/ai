@@ -72,6 +72,9 @@ app = FastAPI(
 from astra_import import router as import_router
 app.include_router(import_router)
 
+from astra_canon_engine import install_astra_engine
+install_astra_engine(app)
+
 # ==========================================
 # DATABASE
 # ==========================================
