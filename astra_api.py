@@ -1169,3 +1169,12 @@ if __name__ == "__main__":
 from astra_extensions import install_astra_extensions
 
 install_astra_extensions(app)
+
+from astra_living_memory import install_astra_living_memory
+
+install_astra_living_memory(app)
+
+
+from astra_context_callbacks import install_astra_context_callbacks
+
+install_astra_context_callbacks(app)
