@@ -1164,3 +1164,8 @@ if __name__ == "__main__":
         port=API_PORT,
         log_level="info",
     )
+
+
+from astra_extensions import install_astra_extensions
+
+install_astra_extensions(app)

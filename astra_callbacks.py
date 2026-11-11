@@ -1,18 +1,22 @@
 
 """
 ASTRA AI - CROSS-SEASON CALLBACKS
-MISSIE 9.3
+MISSIE 9.4
 
 Routes:
 GET  /astra/callbacks/status
 POST /astra/callbacks/analyze
 POST /astra/callbacks/chat
 
-Zoekt mogelijke verwijzingen naar oudere canon.
-De creatieve engine verwerkt canon zelf
-in de Ollama-systeemprompt.
+Deze module:
+- zoekt eerdere officiele canon
+- vindt mogelijke semantische verbanden
+- houdt de originele gebruikersvraag intact
+- laat de Canon Engine de tekst genereren
+- rapporteert de nieuwe kwaliteitscontroles
 
-Geen hardcoded verhaalinhoud of verboden zinnen.
+Geen hardcoded personages, verhaalfeiten,
+stopwoorden of verboden verhaalzinnen.
 """
 
 import asyncio
@@ -21,12 +25,17 @@ import re
 import sqlite3
 
 from contextlib import closing
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Optional
 
 import httpx
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Request,
+)
 from pydantic import BaseModel, Field
 
 from database import DB_PATH
@@ -40,9 +49,14 @@ MIN_SIMILARITY = 0.42
 MAX_FRAGMENT_CHARS = 1200
 DEFAULT_MAX_RESULTS = 5
 
+EMBEDDING_MODEL = (
+    "sentence-transformers/"
+    "paraphrase-multilingual-MiniLM-L12-v2"
+)
+
 router = APIRouter(
     prefix="/astra/callbacks",
-    tags=["Missie 9 - Cross-season memory"],
+    tags=["Astra - Cross-season memory"],
 )
 
 
@@ -72,7 +86,10 @@ class CallbackRequest(BaseModel):
 
 
 class CallbackChatRequest(CallbackRequest):
-    mode: Literal["canon", "creative"] = "creative"
+    mode: Literal[
+        "canon",
+        "creative",
+    ] = "creative"
 
 
 # ============================================
@@ -86,6 +103,10 @@ def connect():
     )
 
     db.row_factory = sqlite3.Row
+
+    db.execute(
+        "PRAGMA busy_timeout = 30000"
+    )
 
     return db
 
@@ -115,6 +136,14 @@ def load_canon(
     season=None,
     episode=None,
 ):
+    """
+    Zoek uitsluitend officiele canon.
+
+    Als de huidige tijdlijn bekend is,
+    sluit toekomstige en huidige
+    afleveringen uit.
+    """
+
     sql = """
         SELECT
             e.season_id AS season,
@@ -131,14 +160,14 @@ def load_canon(
           AND TRIM(v.transcript_text) != ''
     """
 
-    parameters = [chat_id]
+    params = [chat_id]
 
     if season is not None:
         if episode is None:
             sql += """
                 AND e.season_id < ?
             """
-            parameters.append(season)
+            params.append(season)
         else:
             sql += """
                 AND (
@@ -150,7 +179,7 @@ def load_canon(
                 )
             """
 
-            parameters.extend([
+            params.extend([
                 season,
                 season,
                 episode,
@@ -166,7 +195,7 @@ def load_canon(
     with closing(connect()) as db:
         rows = db.execute(
             sql,
-            parameters,
+            params,
         ).fetchall()
 
     return [
@@ -226,7 +255,7 @@ def split_fragments(text):
 
 
 # ============================================
-# LEXICALE ZOEKFUNCTIE
+# LEXICALE VERGELIJKING
 # ============================================
 
 def normalize(text):
@@ -259,10 +288,17 @@ def lexical_similarity(first, second):
     if not left or not right:
         return 0.0
 
-    intersection = len(left & right)
+    intersection = len(
+        left & right
+    )
 
-    precision = intersection / len(left)
-    recall = intersection / len(right)
+    precision = (
+        intersection / len(left)
+    )
+
+    recall = (
+        intersection / len(right)
+    )
 
     if precision + recall == 0:
         return 0.0
@@ -277,38 +313,15 @@ def lexical_similarity(first, second):
 # SEMANTISCH ZOEKEN
 # ============================================
 
-_embedding_model = None
-_embedding_attempted = False
-
-
+@lru_cache(maxsize=1)
 def get_embedding_model():
-    global _embedding_model
-    global _embedding_attempted
+    from sentence_transformers import (
+        SentenceTransformer,
+    )
 
-    if _embedding_attempted:
-        return _embedding_model
-
-    _embedding_attempted = True
-
-    try:
-        from sentence_transformers import (
-            SentenceTransformer,
-        )
-
-        _embedding_model = SentenceTransformer(
-            "paraphrase-multilingual-MiniLM-L12-v2"
-        )
-
-    except Exception as error:
-        print(
-            "[MISSIE 9] Semantisch model "
-            "niet beschikbaar:",
-            error,
-        )
-
-        _embedding_model = None
-
-    return _embedding_model
+    return SentenceTransformer(
+        EMBEDDING_MODEL
+    )
 
 
 def cosine_similarity(first, second):
@@ -332,34 +345,46 @@ def cosine_similarity(first, second):
 
 
 def calculate_scores(question, fragments):
-    model = get_embedding_model()
+    try:
+        model = get_embedding_model()
 
-    if model is None:
-        return [
-            lexical_similarity(question, fragment)
-            for fragment in fragments
-        ], "lexical"
-
-    vectors = model.encode(
-        [question] + fragments,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-        batch_size=32,
-    )
-
-    question_vector = vectors[0]
-
-    scores = [
-        float(
-            cosine_similarity(
-                question_vector,
-                vector,
-            )
+        vectors = model.encode(
+            [question] + fragments,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            batch_size=32,
         )
-        for vector in vectors[1:]
-    ]
 
-    return scores, "semantic"
+        query_vector = vectors[0]
+
+        scores = [
+            float(
+                cosine_similarity(
+                    query_vector,
+                    vector,
+                )
+            )
+            for vector in vectors[1:]
+        ]
+
+        return scores, "semantic"
+
+    except Exception as error:
+        print(
+            "[ASTRA CALLBACKS] "
+            "Semantisch zoeken niet beschikbaar:",
+            error,
+        )
+
+        scores = [
+            lexical_similarity(
+                question,
+                fragment,
+            )
+            for fragment in fragments
+        ]
+
+        return scores, "lexical"
 
 
 # ============================================
@@ -367,7 +392,9 @@ def calculate_scores(question, fragments):
 # ============================================
 
 def find_callbacks(data):
-    chat = get_chat(data.chat_id)
+    chat = get_chat(
+        data.chat_id
+    )
 
     episodes = load_canon(
         data.chat_id,
@@ -403,7 +430,8 @@ def find_callbacks(data):
             "search_method": None,
             "canon_episodes_searched": len(episodes),
             "message": (
-                "Geen eerdere canonfragmenten gevonden."
+                "Geen eerdere canonfragmenten "
+                "gevonden."
             ),
         }
 
@@ -465,15 +493,17 @@ def find_callbacks(data):
         "search_method": method,
         "canon_episodes_searched": len(episodes),
         "message": (
-            "Mogelijke oude referenties gevonden."
+            "Mogelijke eerdere "
+            "canonverbanden gevonden."
             if selected
-            else "Geen sterke overeenkomst gevonden."
+            else
+            "Geen sterke overeenkomst gevonden."
         ),
     }
 
 
 # ============================================
-# BESTAANDE ASTRA CHAT
+# BESTAANDE ASTRA CHAT AANROEPEN
 # ============================================
 
 async def call_existing_astra_chat(
@@ -485,10 +515,11 @@ async def call_existing_astra_chat(
     episode,
 ):
     """
-    Geef alleen het oorspronkelijke bericht door.
+    De originele tekst blijft intact.
 
-    De Canon Engine zoekt zelfstandig eerdere
-    canon en plaatst die in de Ollama-systeemprompt.
+    De Canon Engine haalt zelfstandig
+    relevante canon op en controleert
+    het gegenereerde antwoord.
     """
 
     payload = {
@@ -507,7 +538,7 @@ async def call_existing_astra_chat(
         async with httpx.AsyncClient(
             transport=transport,
             base_url="http://astra.internal",
-            timeout=300,
+            timeout=600,
         ) as client:
             response = await client.post(
                 "/astra/chat",
@@ -518,27 +549,31 @@ async def call_existing_astra_chat(
         raise HTTPException(
             status_code=502,
             detail=(
-                "Astra-chat kon niet worden "
-                f"uitgevoerd: {error}"
+                "De interne Astra-chat "
+                "kon niet worden uitgevoerd: "
+                f"{error}"
             ),
-        )
+        ) from error
 
     try:
         result = response.json()
 
-    except ValueError:
+    except ValueError as error:
         raise HTTPException(
             status_code=502,
             detail=(
-                "Astra-chat gaf geen geldig "
-                "JSON-antwoord."
+                "De interne Astra-chat gaf "
+                "geen geldig JSON-antwoord."
             ),
-        )
+        ) from error
 
     if response.status_code >= 400:
         raise HTTPException(
             status_code=response.status_code,
-            detail=result,
+            detail=result.get(
+                "detail",
+                result,
+            ),
         )
 
     return result
@@ -553,7 +588,7 @@ def callback_status():
     return {
         "success": True,
         "module": "Astra Cross-Season Memory",
-        "version": "9.3",
+        "version": "9.4",
         "database": str(Path(DB_PATH)),
         "spontaneous_callback_search": True,
         "canon_context_before_generation": True,
@@ -561,6 +596,9 @@ def callback_status():
         "canon_only": True,
         "future_episode_filter": True,
         "original_user_message_preserved": True,
+        "clean_creative_history": True,
+        "repetition_detection": True,
+        "ai_canon_review": True,
         "connection_verification": (
             "Mogelijke verbanden zijn niet "
             "automatisch bewezen."
@@ -573,7 +611,9 @@ def callback_status():
 # ============================================
 
 @router.post("/analyze")
-async def analyze_callbacks(data: CallbackRequest):
+async def analyze_callbacks(
+    data: CallbackRequest,
+):
     return await asyncio.to_thread(
         find_callbacks,
         data,
@@ -606,9 +646,12 @@ async def callback_chat(
         "possible_callbacks"
     ]
 
-    # MISSIE 9.3:
-    # Geen uitgebreide instructies in de user-prompt.
-    # De Canon Engine verwerkt canon zelf.
+    # Geen extra instructies in de user-prompt.
+    # De Canon Engine verzorgt zelf:
+    # - canoncontext
+    # - verboden-zinnencontrole
+    # - herhalingscontrole
+    # - AI-canonreview
 
     original_chat = await call_existing_astra_chat(
         request=request,
@@ -623,10 +666,16 @@ async def callback_chat(
         "success": True,
         "chat": original_chat,
         "callbacks": callbacks,
-        "callback_message": callback_result["message"],
-        "search_method": callback_result["search_method"],
+        "callback_message": (
+            callback_result["message"]
+        ),
+        "search_method": (
+            callback_result["search_method"]
+        ),
         "canon_episodes_searched": (
-            callback_result["canon_episodes_searched"]
+            callback_result[
+                "canon_episodes_searched"
+            ]
         ),
         "canon_context_supplied": bool(
             original_chat.get("sources")
@@ -634,12 +683,32 @@ async def callback_chat(
         "automatic_callback_generation": (
             data.mode == "creative"
         ),
+        "clean_memory": original_chat.get(
+            "clean_memory",
+            False,
+        ),
+        "repetition_check_passed": (
+            original_chat.get(
+                "repetition_check_passed"
+            )
+        ),
+        "canon_review_checked": (
+            original_chat.get(
+                "canon_review_checked"
+            )
+        ),
+        "canon_review_flagged": (
+            original_chat.get(
+                "canon_review_flagged"
+            )
+        ),
+        "canon_verified": False,
         "connection_verified": False,
         "important": (
-            "De creatieve Canon Engine zoekt zelf "
-            "in eerdere canon voordat Ollama antwoordt. "
-            "Mogelijke verbanden zijn niet automatisch "
-            "bewezen en AI-antwoorden blijven "
-            "onderhevig aan controle."
+            "De gevonden fragmenten komen "
+            "uit officiele canon. "
+            "Semantische overeenkomsten en "
+            "AI-beoordelingen zijn geen "
+            "garantie op canoncorrectheid."
         ),
     }
