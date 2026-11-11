@@ -1,26 +1,39 @@
 
 """
-ASTRA AI - MISSIE 9.6
-LIVING MEMORY & SPONTANEOUS REACTIONS
+ASTRA AI - MISSIE 9.6.1
+LIVING MEMORY - DYNAMISCHE GEHEUGENBRONNEN
 
-- Herkent terugkerende uitdrukkingen uit eerdere canon
-- Zoekt mogelijke verbanden met oude scènes
-- Vindt seizoen en aflevering van herinneringen
-- Maakt fanreacties met bronvermelding
-- Sluit huidige en toekomstige canon uit
-- Gebruikt de bestaande Astra-chatgenerator
+Deze module:
+- Leest eerdere officiële canon uit SQLite.
+- Herkent letterlijk herhaalde woordgroepen.
+- Zoekt lexicaal vergelijkbare scènes.
+- Geeft controleerbare bronlocaties terug.
+- Sluit huidige en toekomstige afleveringen uit.
+- Gebruikt de bestaande Astra-chatgenerator.
 
-Geen hardcoded personages, bijnamen of verhaalfacts.
+Deze module bevat GEEN:
+- Vooraf geschreven fanreacties.
+- Vaste emotielabels.
+- Verhaalgebonden callbackcategorieën.
+- Hardcoded personages, bijnamen of gebeurtenissen.
+
+Dynamische interpretatie en fanreacties horen bij
+de bovenliggende AI-modules, zoals missie 9.7.2.
 """
 
+from __future__ import annotations
+
 import math
+import os
 import re
 import sqlite3
 
 from collections import Counter, defaultdict
 from contextlib import closing
+from typing import Any
 
 import httpx
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -32,22 +45,33 @@ router = APIRouter(
     tags=["Astra Living Memory"],
 )
 
-# ============================================
-# TECHNISCHE INSTELLINGEN
-# ============================================
 
-MAX_CANON_EPISODES = 1000
-MAX_TRANSCRIPT_CHARS = 100000
-MAX_SCENE_CHARS = 10000
+# Technische instellingen, geen verhaalinhoud.
 
-MIN_SENTENCE_SCORE = 0.26
-MIN_PHRASE_WORDS = 3
-MAX_PHRASE_WORDS = 6
+MAX_CANON_EPISODES = int(
+    os.getenv("ASTRA_MAX_CANON_EPISODES", "1000")
+)
 
+MAX_TRANSCRIPT_CHARS = int(
+    os.getenv("ASTRA_MAX_TRANSCRIPT_CHARS", "100000")
+)
 
-# ============================================
-# REQUEST MODELLEN
-# ============================================
+MAX_SCENE_CHARS = int(
+    os.getenv("ASTRA_MAX_SCENE_CHARS", "10000")
+)
+
+MIN_SENTENCE_SCORE = float(
+    os.getenv("ASTRA_MEMORY_SENTENCE_SCORE", "0.26")
+)
+
+MIN_PHRASE_WORDS = int(
+    os.getenv("ASTRA_MEMORY_MIN_PHRASE_WORDS", "3")
+)
+
+MAX_PHRASE_WORDS = int(
+    os.getenv("ASTRA_MEMORY_MAX_PHRASE_WORDS", "6")
+)
+
 
 class LivingMemoryRequest(BaseModel):
     chat_id: int = Field(gt=0)
@@ -73,11 +97,7 @@ class LivingChatRequest(LivingMemoryRequest):
     )
 
 
-# ============================================
-# TEKSTVERWERKING
-# ============================================
-
-def words(text):
+def words(text: str) -> list[str]:
     return re.findall(
         r"[^\W_]+(?:['’][^\W_]+)*",
         text.casefold(),
@@ -85,7 +105,7 @@ def words(text):
     )
 
 
-def sentences(text):
+def sentences(text: str) -> list[str]:
     parts = re.split(
         r"(?<=[.!?])\s+|\n+",
         text.strip(),
@@ -98,13 +118,22 @@ def sentences(text):
     ]
 
 
-def ngrams(tokens, minimum=3, maximum=6):
+def ngrams(
+    tokens: list[str],
+    minimum: int = MIN_PHRASE_WORDS,
+    maximum: int = MAX_PHRASE_WORDS,
+):
     for size in range(minimum, maximum + 1):
         for index in range(len(tokens) - size + 1):
-            yield tuple(tokens[index:index + size])
+            yield tuple(
+                tokens[index:index + size]
+            )
 
 
-def short_excerpt(text, limit=360):
+def short_excerpt(
+    text: str,
+    limit: int = 360,
+) -> str:
     text = " ".join(text.split())
 
     if len(text) <= limit:
@@ -113,32 +142,34 @@ def short_excerpt(text, limit=360):
     return text[:limit].rstrip() + "..."
 
 
-def episode_position(item):
+def episode_position(
+    item: dict[str, Any],
+) -> tuple[int, int]:
     return (
-        item["season"],
-        item["episode"],
+        int(item["season"]),
+        int(item["episode"]),
     )
 
 
-# ============================================
-# DATABASE
-# ============================================
-
-def db_open():
+def db_open() -> sqlite3.Connection:
     db = sqlite3.connect(
         DB_PATH,
         timeout=30,
     )
+
     db.row_factory = sqlite3.Row
+
     return db
 
 
-def load_past_canon(chat_id, season, episode):
+def load_past_canon(
+    chat_id: int,
+    season: int,
+    episode: int,
+) -> list[dict[str, Any]]:
     """
-    Haal uitsluitend eerdere officiële canon op.
-
-    Huidige en toekomstige afleveringen
-    worden uitgesloten.
+    Haal alleen eerdere officiële canon op
+    uit dezelfde chat.
     """
 
     with closing(db_open()) as db:
@@ -177,11 +208,11 @@ def load_past_canon(chat_id, season, episode):
               AND TRIM(v.transcript_text) != ''
 
               AND (
-                  e.season_id < ?
-                  OR (
-                      e.season_id = ?
-                      AND e.episode_number < ?
-                  )
+                    e.season_id < ?
+                    OR (
+                        e.season_id = ?
+                        AND e.episode_number < ?
+                    )
               )
 
             ORDER BY
@@ -200,10 +231,10 @@ def load_past_canon(chat_id, season, episode):
             ),
         ).fetchall()
 
-    # Gebruik de nieuwste versie wanneer meerdere
-    # canonversies voor een aflevering bestaan.
+    # Behoud de nieuwste officiële canonversie
+    # wanneer meerdere versies aanwezig zijn.
 
-    unique = {}
+    unique: dict[int, dict[str, Any]] = {}
 
     for row in rows:
         episode_id = row["episode_id"]
@@ -227,11 +258,9 @@ def load_past_canon(chat_id, season, episode):
     )
 
 
-# ============================================
-# WOORDGEWICHTEN
-# ============================================
-
-def build_document_frequency(episodes):
+def build_document_frequency(
+    episodes: list[dict[str, Any]],
+) -> Counter:
     frequency = Counter()
 
     for episode in episodes:
@@ -243,16 +272,16 @@ def build_document_frequency(episodes):
 
 
 def weighted_similarity(
-    current_text,
-    old_text,
-    document_frequency,
-    document_count,
-):
+    current_text: str,
+    old_text: str,
+    document_frequency: Counter,
+    document_count: int,
+) -> float:
     """
-    Vergelijk scènes op gedeelde woorden.
+    Vergelijk gedeelde woorden met gewichten
+    op basis van de gevonden canon.
 
-    Zeldzamere woorden wegen zwaarder.
-    Er wordt geen vaste stopwoordenlijst gebruikt.
+    Geen vaste verhaalwoorden of stopwoordenlijst.
     """
 
     current_tokens = set(words(current_text))
@@ -266,7 +295,7 @@ def weighted_similarity(
     if len(shared) < 2:
         return 0.0
 
-    def weight(token):
+    def weight(token: str) -> float:
         return math.log(
             (document_count + 1)
             / (document_frequency.get(token, 0) + 1)
@@ -297,21 +326,16 @@ def weighted_similarity(
     return shared_weight / denominator
 
 
-# ============================================
-# EXACTE CALLBACKS
-# ============================================
-
 def find_repeated_phrases(
-    current_text,
-    episodes,
-    limit,
-):
+    current_text: str,
+    episodes: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
     """
-    Herken woordgroepen die letterlijk
-    in oude canon voorkomen.
+    Zoek letterlijk herhaalde woordgroepen.
 
-    Een match bewijst tekstherhaling,
-    niet automatisch de betekenis.
+    Een exacte match bewijst tekstherhaling,
+    maar niet automatisch een verhaalverband.
     """
 
     current_tokens = words(current_text)
@@ -320,11 +344,7 @@ def find_repeated_phrases(
         return []
 
     current_phrases = set(
-        ngrams(
-            current_tokens,
-            MIN_PHRASE_WORDS,
-            MAX_PHRASE_WORDS,
-        )
+        ngrams(current_tokens)
     )
 
     if not current_phrases:
@@ -338,17 +358,17 @@ def find_repeated_phrases(
         )
 
         old_phrases = set(
-            ngrams(
-                old_tokens,
-                MIN_PHRASE_WORDS,
-                MAX_PHRASE_WORDS,
-            )
+            ngrams(old_tokens)
         )
 
-        shared_phrases = current_phrases & old_phrases
+        shared_phrases = (
+            current_phrases & old_phrases
+        )
 
         for phrase in shared_phrases:
-            appearances[phrase].append(episode)
+            appearances[phrase].append(
+                episode
+            )
 
     results = []
 
@@ -371,7 +391,9 @@ def find_repeated_phrases(
         )
 
         results.append({
-            "type": "exact_phrase_callback",
+            # Technische matchinformatie,
+            # geen verhaalgebonden categorie.
+            "type": None,
             "phrase": phrase,
             "score": round(score, 4),
 
@@ -407,8 +429,6 @@ def find_repeated_phrases(
         reverse=True,
     )
 
-    # Voorkom overlappende resultaten.
-
     selected = []
 
     for item in results:
@@ -428,26 +448,25 @@ def find_repeated_phrases(
     return selected
 
 
-# ============================================
-# MOGELIJKE SCÈNECALLBACKS
-# ============================================
-
 def find_scene_callbacks(
-    current_text,
-    episodes,
-    limit,
-):
+    current_text: str,
+    episodes: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
     """
-    Zoek scènes met vergelijkbare inhoud.
+    Zoek lexicaal vergelijkbare scènes.
 
-    Dit is een lexicale vergelijking.
-    Een verband is niet automatisch bewezen.
+    De score is een zoeksignaal,
+    geen bewijs van een verhaalverband.
     """
 
     if not episodes:
         return []
 
-    frequency = build_document_frequency(episodes)
+    frequency = build_document_frequency(
+        episodes
+    )
+
     document_count = len(episodes)
 
     current_sentences = (
@@ -483,8 +502,12 @@ def find_scene_callbacks(
             continue
 
         results.append({
-            "type": "possible_scene_callback",
-            "score": round(best_score, 4),
+            "type": None,
+            "phrase": None,
+            "score": round(
+                best_score,
+                4,
+            ),
 
             "source": {
                 "season": episode["season"],
@@ -508,85 +531,15 @@ def find_scene_callbacks(
     return results[:limit]
 
 
-# ============================================
-# FANREACTIES
-# ============================================
-
-def build_fan_reaction(callbacks):
+def analyze_living_memory(
+    data: LivingMemoryRequest,
+) -> dict[str, Any]:
     """
-    Maak een enthousiaste reactie op basis
-    van gevonden canonbronnen.
+    Geef alleen geheugenresultaten terug.
 
-    Er worden geen extra verhaalfacts verzonnen.
+    De module formuleert zelf geen fanreacties.
     """
 
-    if not callbacks:
-        return None
-
-    exact = [
-        item
-        for item in callbacks
-        if item["type"] == "exact_phrase_callback"
-    ]
-
-    if exact:
-        best = exact[0]
-
-        first = best["first_recorded"]
-        last = best["last_recorded"]
-
-        first_label = (
-            f"seizoen {first['season']}, "
-            f"aflevering {first['episode']}"
-        )
-
-        last_label = (
-            f"seizoen {last['season']}, "
-            f"aflevering {last['episode']}"
-        )
-
-        return {
-            "emotion": "surprised",
-
-            "text": (
-                "OH MY GOSH 😭💗 "
-                "DIE UITSPRAAK KOMT TERUG?! "
-                "Ik vind haar al terug in "
-                f"{first_label}! "
-                "De laatste vermelding die ik "
-                "in de doorzochte eerdere canon "
-                f"vond, staat in {last_label}. "
-                "THE CALLBACK!!"
-            ),
-
-            "evidence_type": "exact_text_match",
-            "source": best["source"],
-        }
-
-    best = callbacks[0]
-    source = best["source"]
-
-    return {
-        "emotion": "curious",
-
-        "text": (
-            "WAITTT 😭💗 "
-            "DIT DOET ME DENKEN AAN "
-            f"SEIZOEN {source['season']}, "
-            f"AFLEVERING {source['episode']}! "
-            "Zou dit een callback kunnen zijn?!"
-        ),
-
-        "evidence_type": "possible_connection",
-        "source": source,
-    }
-
-
-# ============================================
-# COMPLETE ANALYSE
-# ============================================
-
-def analyze_living_memory(data):
     episodes = load_past_canon(
         data.chat_id,
         data.season,
@@ -611,8 +564,7 @@ def analyze_living_memory(data):
         same_source = any(
             existing["source"]["season"]
             == item["source"]["season"]
-            and
-            existing["source"]["episode"]
+            and existing["source"]["episode"]
             == item["source"]["episode"]
             for existing in callbacks
         )
@@ -627,7 +579,7 @@ def analyze_living_memory(data):
 
     return {
         "success": True,
-        "mission": "9.6",
+        "mission": "9.6.1",
         "chat_id": data.chat_id,
 
         "current_position": {
@@ -639,46 +591,44 @@ def analyze_living_memory(data):
         "callback_detected": bool(callbacks),
         "callbacks": callbacks,
 
-        "fan_reaction": build_fan_reaction(
-            callbacks
-        ),
+        # Behouden voor compatibiliteit met
+        # bestaande API-gebruikers.
+        # Geen vaste fanreactie meer.
+        "fan_reaction": None,
 
         "limitations": (
-            "Exacte tekstherhaling is "
-            "controleerbaar. Inhoudelijke "
-            "verbanden zijn mogelijke callbacks, "
-            "geen bewezen gebeurtenissen. "
-            "Eerste en laatste vermeldingen "
-            "gelden alleen voor de doorzochte "
-            "opgeslagen canon."
+            "Geheugenresultaten zijn zoekkandidaten. "
+            "Exacte tekstherhaling is controleerbaar, "
+            "maar betekenisvolle verhaalverbanden "
+            "zijn hiermee niet bewezen. "
+            "Eerste en laatste vermeldingen gelden "
+            "alleen voor de doorzochte canon."
         ),
     }
 
-
-# ============================================
-# API STATUS
-# ============================================
 
 @router.get("/status")
 def living_memory_status():
     return {
         "success": True,
-        "mission": "9.6",
+        "mission": "9.6.1",
         "module": "Astra Living Memory",
+
         "exact_phrase_callbacks": True,
         "contextual_callback_candidates": True,
         "source_locations": True,
-        "fan_reactions": True,
+
+        "fan_reactions": False,
+        "hardcoded_reaction_templates": False,
+        "hardcoded_emotion_labels": False,
+        "fixed_story_categories": False,
+
         "future_canon_excluded": True,
         "hardcoded_story_facts": False,
         "chat_integration": True,
         "semantic_understanding_guaranteed": False,
     }
 
-
-# ============================================
-# API ANALYSE
-# ============================================
 
 @router.post("/analyze")
 def living_memory_analyze(
@@ -687,23 +637,19 @@ def living_memory_analyze(
     return analyze_living_memory(data)
 
 
-# ============================================
-# API CHAT + LIVING MEMORY
-# ============================================
-
 @router.post("/chat")
 async def living_memory_chat(
     data: LivingChatRequest,
     request: Request,
 ):
     """
-    Combineer Living Memory met de
-    bestaande Astra-chatgenerator.
+    Combineer geheugenresultaten met
+    de bestaande Astra-chatgenerator.
 
-    De oorspronkelijke gebruikersboodschap
-    wordt ongewijzigd doorgestuurd.
+    De oorspronkelijke boodschap blijft
+    ongewijzigd.
 
-    Fanreactie wordt apart teruggegeven.
+    Fanreacties worden hier niet gegenereerd.
     """
 
     memory = analyze_living_memory(data)
@@ -726,7 +672,6 @@ async def living_memory_chat(
             base_url="http://astra.internal",
             timeout=300,
         ) as client:
-
             response = await client.post(
                 "/astra/chat",
                 json=payload,
@@ -736,8 +681,8 @@ async def living_memory_chat(
         raise HTTPException(
             status_code=502,
             detail=(
-                "Astra-chat kon niet worden "
-                f"bereikt: {exc}"
+                "Astra-chat kon niet worden bereikt: "
+                f"{type(exc).__name__}"
             ),
         ) from exc
 
@@ -761,20 +706,17 @@ async def living_memory_chat(
 
     return {
         "success": True,
-        "mission": "9.6",
+        "mission": "9.6.1",
         "chat": chat_result,
         "living_memory": memory,
-        "fan_reaction": memory["fan_reaction"],
+        "fan_reaction": None,
     }
 
 
-# ============================================
-# INSTALLEREN IN FASTAPI
-# ============================================
-
 def install_astra_living_memory(app):
     """
-    Registreer de routes één keer.
+    Registreer de bestaande API-routes
+    zonder dubbele registratie.
     """
 
     if getattr(
